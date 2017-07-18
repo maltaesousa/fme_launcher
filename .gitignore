@@ -3,4 +3,5 @@
 *.bat
 *.fmw
 *.fme
+*.log
 resources_rc.py
