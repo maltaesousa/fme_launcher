@@ -1,0 +1,4 @@
+*.pyc
+*.yaml
+*.bat
+resources_rc.py
