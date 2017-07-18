@@ -20,13 +20,19 @@
  *                                                                         *
  ***************************************************************************/
 """
+import os
 from PyQt4.QtCore import QSettings, QTranslator, qVersion, QCoreApplication
-from PyQt4.QtGui import QAction, QIcon
+from PyQt4.QtCore import QObject, SIGNAL
+from PyQt4.QtGui import QAction, QIcon, QListWidgetItem
+from qgis.gui import QgsMessageBar
+from qgis.core import QgsVectorLayer, QgsMapLayerRegistry
 # Initialize Qt resources from file resources.py
 import resources
 # Import the code for the dialog
 from fme_launcher_dialog import FmeLauncherDialog
 import os.path
+import yaml
+import subprocess
 
 
 class FmeLauncher:
@@ -42,6 +48,7 @@ class FmeLauncher:
         """
         # Save reference to the QGIS interface
         self.iface = iface
+        self.messageBar = self.iface.messageBar()
         # initialize plugin directory
         self.plugin_dir = os.path.dirname(__file__)
         # initialize locale
@@ -58,13 +65,28 @@ class FmeLauncher:
             if qVersion() > '4.3.3':
                 QCoreApplication.installTranslator(self.translator)
 
-
         # Declare instance attributes
         self.actions = []
         self.menu = self.tr(u'&FME Launcher')
         # TODO: We are going to let the user set this up in a future iteration
         self.toolbar = self.iface.addToolBar(u'FmeLauncher')
         self.toolbar.setObjectName(u'FmeLauncher')
+        self.dlg = FmeLauncherDialog()
+        self.conf = yaml.load(
+            open(os.path.dirname(os.path.abspath(__file__)) +
+                 "\\fme_launcher.yaml", 'r')
+        )['vars']
+
+        self.fmeExePath = self.conf['fme_path']
+        if os.path.exists(self.fmeExePath):
+            self.messageBar.pushMessage("Info",
+                                        str("FME ok: " + self.fmeExePath),
+                                        level=QgsMessageBar.INFO)
+        else:
+            self.messageBar.pushMessage("Erreur",
+                                        str("FME introuvable: " +
+                                            self.fmeExePath),
+                                        level=QgsMessageBar.CRITICAL)
 
     # noinspection PyMethodMayBeStatic
     def tr(self, message):
@@ -80,7 +102,6 @@ class FmeLauncher:
         """
         # noinspection PyTypeChecker,PyArgumentList,PyCallByClass
         return QCoreApplication.translate('FmeLauncher', message)
-
 
     def add_action(
         self,
@@ -168,6 +189,58 @@ class FmeLauncher:
             callback=self.run,
             parent=self.iface.mainWindow())
 
+        QObject.connect(self.dlg.button_box, SIGNAL("clicked()"),
+                        self.runScript)
+
+        for script in self.conf["scripts"]:
+            params = self.conf["scripts"][script]
+            self.dlg.scriptList.addItem(
+                QFmeListItem(
+                    params["script_path"],
+                    params["name"],
+                    params["output_dir"]
+                )
+            )
+
+    def runScript(self):
+        if len(self.dlg.scriptList.selectedItems()) > 0:
+            scriptPath = self.dlg.scriptList.selectedItems()[0].scriptPath
+        else:
+            self.messageBar.pushMessage("Erreur",
+                                        unicode("Aucun script sélectionné: ",
+                                                "utf-8"),
+                                        level=QgsMessageBar.CRITICAL)
+            return
+
+        if scriptPath != '':
+            p = subprocess.Popen(self.fmeExePath + ' ' + scriptPath,
+                                 bufsize=-1, stdout=subprocess.PIPE)
+
+        [out, err] = p.communicate()
+
+        if not err:
+            self.messageBar.pushMessage("OK",
+                                        unicode("Le script a bien fonctionné",
+                                                "utf-8"),
+                                        level=QgsMessageBar.INFO)
+
+            outputDir = self.dlg.scriptList.selectedItems()[0].outputDir
+            if outputDir:
+                i = 0
+                for f in os.listdir(outputDir):
+                    extension = f[-4:]
+                    if extension == '.shp':
+                        out = outputDir + "/" + f
+                        layer = QgsVectorLayer(out, "result_" + str(i), "ogr")
+                        crs = layer.crs()
+                        crs.createFromId(2056)
+                        layer.setCrs(crs)
+                        QgsMapLayerRegistry.instance().addMapLayer(layer)
+
+        else:
+            self.messageBar.pushMessage("Erreur",
+                                        str(err),
+                                        level=QgsMessageBar.CRITICAL)
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -179,7 +252,6 @@ class FmeLauncher:
         # remove the toolbar
         del self.toolbar
 
-
     def run(self):
         """Run method that performs all the real work"""
         # show the dialog
@@ -188,6 +260,15 @@ class FmeLauncher:
         result = self.dlg.exec_()
         # See if OK was pressed
         if result:
-            # Do something useful here - delete the line containing pass and
-            # substitute with your code.
+            self.runScript()
             pass
+
+
+class QFmeListItem(QListWidgetItem):
+
+    def __init__(self, scriptPath, text, output_dir):
+        self.scriptPath = scriptPath
+        self.outputDir = output_dir
+        super(QFmeListItem, self).__init__()
+        if text is not None:
+            self.setText(text)
