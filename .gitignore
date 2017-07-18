@@ -1,4 +1,6 @@
 *.pyc
 *.yaml
 *.bat
+*.fmw
+*.fme
 resources_rc.py
