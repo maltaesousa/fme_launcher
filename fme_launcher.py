@@ -213,10 +213,10 @@ class FmeLauncher:
             return
 
         if scriptPath != '':
-            p = subprocess.Popen(self.fmeExePath + ' ' + scriptPath,
-                                 bufsize=-1, stdout=subprocess.PIPE)
-
-        [out, err] = p.communicate()
+			# p = subprocess.Popen([self.fmeExePath, scriptPath, "--stdout"], shell=True, stdin=subprocess.PIPE, stdout=subprocess.PIPE)
+			err = subprocess.call([self.fmeExePath, scriptPath], stdin=None, stdout=None, stderr=None, shell=False)
+			print err
+			# [out, err] = p.communicate()
 
         if not err:
             self.messageBar.pushMessage("OK",
